@@ -105,7 +105,7 @@ After `RESUME SUCCESS`, the server replays the registration burst and the client
 The batch has no parameters beyond its type. It MUST contain, in this order:
 
 1. The registration burst (`RPL_WELCOME` through the end of the `MOTD` or `ERR_NOMOTD`, and `RPL_ISUPPORT`), as the server would send it to a newly-registered client.
-2. The client's own user modes, as a `MODE` message from the client to itself.
+2. The client's own user modes, as a `MODE` message from the client to itself, if any modes are set.
 3. For each channel the client is joined to: the client's own `JOIN`, followed by exactly what the server would normally send after a join, namely the channel's topic (`RPL_TOPIC` and `RPL_TOPICWHOTIME`, if set) and the member list (`RPL_NAMREPLY` and `RPL_ENDOFNAMES`). The client's own membership prefixes are conveyed by `RPL_NAMREPLY`. Channel modes are not included; as after any join, clients that want them should query them with `MODE <channel>` once the batch has ended.
 
 Any other session state that the server replays (for example, `MONITOR` lists or metadata) SHOULD also be sent inside this batch. Messages sent to the client's channels or to the client directly while it was disconnected are not part of the replay. Once the batch has ended, clients MAY use the [`chathistory`](../extensions/chathistory.html) extension, if the server offers it, to retrieve them; for example by sending `CHATHISTORY LATEST <target> timestamp=<last-seen>` for each channel and query, where `<last-seen>` is the `server-time` of the last message received on the old connection.
