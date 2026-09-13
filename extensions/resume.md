@@ -78,9 +78,10 @@ If the request is unsuccessful, the server returns a `FAIL RESUME` message with 
 | ---- | ------ |
 | `INVALID_TOKEN` | `:<server> FAIL RESUME INVALID_TOKEN :Cannot resume connection, token is not valid` |
 | `REGISTRATION_IS_COMPLETED` | `:<server> FAIL RESUME REGISTRATION_IS_COMPLETED :Cannot resume connection, connection registration has completed` |
+| `SASL_FIRST` | `:<server> FAIL RESUME SASL_FIRST :Cannot resume connection, authenticate with SASL first` |
 | `CANNOT_RESUME` | `:<server> FAIL RESUME CANNOT_RESUME :Cannot resume connection, for a different reason described here` |
 
-If a client receives a `FAIL RESUME` message with a code other than `INVALID_TOKEN`, then they MUST abort the resume attempt and connect to the server normally instead. If they receive a `FAIL RESUME` message with code `INVALID_TOKEN`, then they MAY submit a different candidate token (in case of doubt as to whether a previous `RESUME` attempt was accepted), or else abort the resume attempt and connect normally.
+If a client receives a `FAIL RESUME` message with a code other than `INVALID_TOKEN` or `SASL_FIRST`, then they MUST abort the resume attempt and connect to the server normally instead. If they receive a `FAIL RESUME` message with code `INVALID_TOKEN`, then they MAY submit a different candidate token (in case of doubt as to whether a previous `RESUME` attempt was accepted), or else abort the resume attempt and connect normally. If they receive `SASL_FIRST`, they MAY authenticate with SASL and then send `RESUME` again, or else abort the resume attempt and connect normally.
 
 #### `RESUME` Message
 This message is sent from the server to the client and has two forms, `RESUME TOKEN` and `RESUME SUCCESS`. `RESUME TOKEN` is used as described above, to communicate the resume token to the client after the client's first negotiation of the `draft/resume-0.6` capability:
@@ -154,7 +155,12 @@ Considerations around tokens and the process for generating them is described be
 ## Resuming A Connection
 When a client detects that it has become disconnected from a server, it SHOULD try to resume before it breaks the existing connection.
 
-Upon establishing the new connection, the client begins capability negotiation, negotiates all mutually-supported capabilities, and MUST confirm that the `draft/resume-0.6` capability exists. If this capability does not exist, the client continues connection registration without attempting to resume. If this capability does exist, the client sends the `RESUME` command and MUST wait for either a `RESUME SUCCESS` or a `FAIL RESUME` message from the server before continuing registration. It should be noted that the client MUST NOT perform SASL authentication if the `draft/resume-0.6` capability exists and they wish to resume their session, as completing SASL auth will end connection registration and abort the resumption attempt.
+Upon establishing the new connection, the client begins capability negotiation, negotiates all mutually-supported capabilities, and MUST confirm that the `draft/resume-0.6` capability exists. If this capability does not exist, the client continues connection registration without attempting to resume. If this capability does exist, the client sends the `RESUME` command and MUST wait for either a `RESUME SUCCESS` or a `FAIL RESUME` message from the server before continuing registration. The client MAY authenticate with SASL before sending `RESUME`; see [SASL and Accounts](#sasl-and-accounts) below.
+
+### SASL and Accounts
+Servers MAY enforce a policy that the client authenticates with SASL before resuming, so that the resume token can be matched against the network account of the session being resumed. If this policy is enforced and the client sends `RESUME` before completing SASL authentication, the server MUST reject the request with `FAIL RESUME SASL_FIRST`. The client can then authenticate and retry `RESUME` during the same registration. If the client has authenticated but the account does not match that of the session identified by the token, the server MUST reject the request with `INVALID_TOKEN`, so as not to reveal that the token is valid for another account.
+
+If this policy is not enforced and the client authenticates with SASL before resuming, the account authenticated on the new connection MUST be disregarded when the resumption succeeds. The resumed session keeps the account (or lack of one) of the old session, as with all other session state.
 
 If the token provided by the new client is validated by the server and the old client completed connection registration with the server, then the attempt SHOULD be successful. If the attempt is successful, the server MUST send the client a `RESUME SUCCESS` message and complete connection registration immediately (at which time the state will begin to replay as described below). If the attempt is unsuccessful, the server MUST send a `FAIL RESUME` message, and then allow the client to continue connection registration.
 
@@ -176,7 +182,7 @@ On a successful request, the session information that MUST be applied from the o
 - Metadata.
 - MONITOR list.
 - User modes.
-- Logged-in user account.
+- Logged-in user account, regardless of any account authenticated on the new connection.
 
 Session information that MUST NOT be applied from the old client and replayed includes:
 
@@ -278,6 +284,27 @@ Failed `RESUME` attempt from a client with the nick `dan` reconnecting. The nick
     C2 - S: :irc.example.com 001 dan-backup-nick :Welcome to the Internet Relay Network dan-backup-nick
     ... regular connection ...
 
+### Resumption Requiring SASL
+`RESUME` attempt against a server that requires the client to authenticate before resuming. The old session was logged in as `bunny`:
+
+    C2 - C: CAP LS
+    C2 - C: NICK dan-backup-nick
+    C2 - C: USER d * 0 :An example user!
+    C2 - S: :irc.example.com CAP * LS :multi-prefix batch draft/resume-0.6 sasl
+    C2 - C: CAP REQ :multi-prefix batch draft/resume-0.6 sasl
+    C2 - S: :irc.example.com CAP dan-backup-nick ACK :multi-prefix batch draft/resume-0.6 sasl
+    C2 - S: :irc.example.com RESUME TOKEN JKbAypzFiovffzuD8VEfcs6bOLrXsSenxsyZNt8
+    C2 - C: RESUME A8KgnZPYDaRiGMzZWLu2frVvtN7lbCxO3hTwGLO
+    C2 - S: :irc.example.com FAIL RESUME SASL_FIRST :Cannot resume connection, authenticate with SASL first
+    C2 - C: AUTHENTICATE PLAIN
+    C2 - S: :irc.example.com AUTHENTICATE +
+    C2 - C: AUTHENTICATE YnVubnkAYnVubnkAYnVubnk=
+    C2 - S: :irc.example.com 900 dan-backup-nick * bunny :You are now logged in as bunny
+    C2 - S: :irc.example.com 903 dan-backup-nick :SASL authentication successful
+    C2 - C: RESUME A8KgnZPYDaRiGMzZWLu2frVvtN7lbCxO3hTwGLO
+    C2 - S: :irc.example.com RESUME SUCCESS dan
+    ... resume batch as in the successful example ...
+
 ### Successful BRB
 Successful `BRB` attempt from a client with the nickname `dan`:
 
@@ -325,7 +352,7 @@ This section notes security-specific considerations software authors will need t
 
 Servers should verify that clients cannot use `resume` to unintentionally bypass or evade any checks normally performed during registration, such as the `PASS` command or IP/nickmask bans. For this reason, we recommend only allowing clients to resume if their old session had completed connection registration successfully.
 
-A resume token is a bearer credential: anyone who observes it can take over the session. Servers should therefore enforce a policy of only offering resumption over TLS, so that tokens are never sent in the clear. As described in the [Capabilities](#capabilities) section, this policy is enforced at capability negotiation, by not advertising `draft/resume-0.6` to clients that are not connected with TLS, rather than by rejecting `RESUME` later. A client on a plaintext connection then never receives a token at all.
+A resume token is a bearer credential: anyone who observes it can take over the session. Servers can limit the damage of a leaked token by requiring the resuming client to authenticate with SASL first and matching the token against the account of the old session, as described in [SASL and Accounts](#sasl-and-accounts); a stolen token alone is then insufficient. Servers should therefore enforce a policy of only offering resumption over TLS, so that tokens are never sent in the clear. As described in the [Capabilities](#capabilities) section, this policy is enforced at capability negotiation, by not advertising `draft/resume-0.6` to clients that are not connected with TLS, rather than by rejecting `RESUME` later. A client on a plaintext connection then never receives a token at all.
 
 When servers apply the old client's session information to the new client, ensure that the new client retains their own unique resume token. Clients shouldn't share resume tokens under any circumstances.
 
