@@ -34,7 +34,7 @@ This feature is particularly useful in combination with the [WebSocket](../exten
 Servers may also implement this feature so that a session can be resumed from a different server on the same network. This is particularly relevant when a client loses its connection to one server while that server remains linked to the network: the client can reconnect to any server and take over its existing session, rather than waiting for the old server to time it out.
 
 ### Dependencies
-This specification depends on the [`batch`](../extensions/batch.html) capability. Servers MUST reject (`CAP NAK`) a request for the `draft/resume-0.6` capability unless the client has already negotiated `batch`, or requests `batch` in the same `CAP REQ`.
+This specification works best with the [`batch`](../extensions/batch.html) capability, but does not require it. If the client has negotiated `batch`, the state replayed after a successful resumption is wrapped in a batch as described in the [Resume Batch](#resume-batch) section; otherwise the same messages are sent without batch framing.
 
 
 ## Architecture
@@ -70,7 +70,7 @@ This command, sent from a client to a server, indicates that the client wishes t
 
 `<token>` is the old connection's resume token.
 
-If the request is successful, the server returns a `RESUME SUCCESS` message as described below, registration immediately completes, and the server begins replaying the current client state inside a `draft/resume-0.6` batch as described in the [Resume Batch](#resume-batch) section.
+If the request is successful, the server returns a `RESUME SUCCESS` message as described below, registration immediately completes, and the server begins replaying the current client state as described in the [Resume Batch](#resume-batch) section.
 
 If the request is unsuccessful, the server returns a `FAIL RESUME` message with one of the codes below using the given format, including an appropriate description of the error:
 
@@ -94,13 +94,13 @@ The second form is `RESUME SUCCESS`, sent to indicate that a `RESUME` request ha
 `<oldnick>` is the nickname of the session being resumed. After receiving this message, the client MUST assume that this is their nickname.
 
 #### Resume Batch
-After `RESUME SUCCESS`, the server replays the registration burst and the client's session state to the new client. This replay MUST be wrapped in a [`batch`](../extensions/batch.html) of type `draft/resume-0.6`:
+After `RESUME SUCCESS`, the server replays the registration burst and the client's session state to the new client. If the client has negotiated the [`batch`](../extensions/batch.html) capability, this replay MUST be wrapped in a batch of type `draft/resume-0.6`:
 
     BATCH +<ref> draft/resume-0.6
     ... registration burst and session replay ...
     BATCH -<ref>
 
-The batch has no parameters beyond its type. It MUST contain, in this order:
+The batch has no parameters beyond its type. The replay MUST contain, in this order:
 
 1. The registration burst (`RPL_WELCOME` through the end of the `MOTD` or `ERR_NOMOTD`, and `RPL_ISUPPORT`), as the server would send it to a newly-registered client.
 2. The client's own user modes, as a `MODE` message from the client to itself, if any modes are set.
@@ -108,7 +108,7 @@ The batch has no parameters beyond its type. It MUST contain, in this order:
 
 Any other session state that the server replays (for example, `MONITOR` lists or metadata) SHOULD also be sent inside this batch. Messages sent to the client's channels or to the client directly while it was disconnected are not part of the replay. Once the batch has ended, clients MAY use the [`chathistory`](../extensions/chathistory.html) extension, if the server offers it, to retrieve them; for example by sending `CHATHISTORY LATEST <target> timestamp=<last-seen>` for each channel and query, where `<last-seen>` is the `server-time` of the last message received on the old connection.
 
-The batch allows clients to distinguish the replayed state from new events and to apply it atomically. A client cannot hold the `draft/resume-0.6` capability without `batch`, as described in [Dependencies](#dependencies), so the server can always send it.
+The batch allows clients to distinguish the replayed state from new events and to apply it atomically, so clients that intend to resume SHOULD negotiate `batch`. If the client has not negotiated `batch`, the server MUST send the same messages in the same order without the surrounding `BATCH` messages.
 
 ### BRB Messages
 
@@ -154,7 +154,7 @@ Considerations around tokens and the process for generating them is described be
 ## Resuming A Connection
 When a client detects that it has become disconnected from a server, it SHOULD try to resume before it breaks the existing connection.
 
-Upon establishing the new connection, the client begins capability negotiation, negotiates all mutually-supported capabilities, and MUST confirm that both the `draft/resume-0.6` and `batch` capabilities exist and have been negotiated. If either capability does not exist, the client continues connection registration without attempting to resume. If this capability does exist, the client sends the `RESUME` command and MUST wait for either a `RESUME SUCCESS` or a `FAIL RESUME` message from the server before continuing registration. It should be noted that the client MUST NOT perform SASL authentication if the `draft/resume-0.6` capability exists and they wish to resume their session, as completing SASL auth will end connection registration and abort the resumption attempt.
+Upon establishing the new connection, the client begins capability negotiation, negotiates all mutually-supported capabilities, and MUST confirm that the `draft/resume-0.6` capability exists. If this capability does not exist, the client continues connection registration without attempting to resume. If this capability does exist, the client sends the `RESUME` command and MUST wait for either a `RESUME SUCCESS` or a `FAIL RESUME` message from the server before continuing registration. It should be noted that the client MUST NOT perform SASL authentication if the `draft/resume-0.6` capability exists and they wish to resume their session, as completing SASL auth will end connection registration and abort the resumption attempt.
 
 If the token provided by the new client is validated by the server and the old client completed connection registration with the server, then the attempt SHOULD be successful. If the attempt is successful, the server MUST send the client a `RESUME SUCCESS` message and complete connection registration immediately (at which time the state will begin to replay as described below). If the attempt is unsuccessful, the server MUST send a `FAIL RESUME` message, and then allow the client to continue connection registration.
 
@@ -164,7 +164,7 @@ On a successful request, the server:
 
 1. Terminates the old client's connection.
 2. Updates the client's resume token (or lack of one) to match the new client's information.
-3. Plays the 'joining server' burst to the new client, inside a `draft/resume-0.6` batch as described above.
+3. Plays the 'joining server' burst to the new client, inside a `draft/resume-0.6` batch if `batch` was negotiated.
 4. Replays the client's session to the new client, inside the same batch.
 
 The resumption MUST NOT be visible to other clients. The server MUST NOT send `QUIT`, `JOIN`, `CHGHOST`, `MONITOR` or any other messages to other clients as a result of the resumption, and the resumed session MUST retain the nickname, username and visible hostname of the old client. Servers MAY update their internal record of the connection's real address (for example, for ban checks or operator `WHOIS` output), but this MUST NOT be exposed to other clients as a result of the resumption.
