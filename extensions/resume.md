@@ -330,6 +330,8 @@ Failed `BRB` attempt from a client:
 ## Implementation Considerations
 This section notes considerations software authors will need to take into account while implementing this specification. This section is non-normative.
 
+Servers that enforce the SASL-first policy described in [SASL and Accounts](#sasl-and-accounts) may relax it when their authentication service is unavailable (for example, when services are split from the network), accepting the token alone rather than failing the resume with `SASL_FIRST`. This is why the policy is signalled per `RESUME` request rather than as a static value on the capability: the server can decide with live information, and clients need no special handling for either case.
+
 Server authors should allow clients to resume across server links on the same network. For example, if A and B are both servers on the same network, and a client who was on server A tries to resume when connected to server B, the server software should transfer the session across to server B silently.
 
 When reconnecting and intending to use `RESUME`, clients should first try to reconnect to the same server / IP address before falling back to any server on the same network. Some server software may have difficulty transferring the connection between two different servers, so doing this can help give clients the best chance of successfully using this feature.
