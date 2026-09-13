@@ -29,6 +29,10 @@ Occasionally, clients disconnect from IRC. What normally happens is that the cli
 
 The `resume` feature vastly simplifies this form of reconnection. The reconnecting client takes over its old session in place, and the reconnection is not visible to other clients: they see no `QUIT`, `JOIN` or other notification. Messages sent while the client was disconnected are not replayed by this extension; clients can retrieve them with the [`chathistory`](../extensions/chathistory.html) extension if the server offers it.
 
+This feature is particularly useful in combination with the [WebSocket](../extensions/websocket.html) extension. WebSocket connections allow IRC servers to be placed behind a reverse proxy or CDN such as Cloudflare, but these edge networks drop long-lived connections much more often than a direct TCP connection would, for example when an edge node is restarted or a connection is rebalanced. With `resume`, such a drop becomes a brief interruption rather than a visible disconnection.
+
+Servers may also implement this feature so that a session can be resumed from a different server on the same network. This is particularly relevant when a client loses its connection to one server while that server remains linked to the network: the client can reconnect to any server and take over its existing session, rather than waiting for the old server to time it out.
+
 ### Dependencies
 This specification depends on the [`batch`](../extensions/batch.html) capability, which MUST be negotiated to resume a connection. The order of capability negotiation is not significant and MUST not be enforced. It also uses the [`standard-replies`](../extensions/standard-replies.html) extension for `FAIL` messages.
 
