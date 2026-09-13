@@ -34,7 +34,7 @@ This feature is particularly useful in combination with the [WebSocket](../exten
 Servers may also implement this feature so that a session can be resumed from a different server on the same network. This is particularly relevant when a client loses its connection to one server while that server remains linked to the network: the client can reconnect to any server and take over its existing session, rather than waiting for the old server to time it out.
 
 ### Dependencies
-This specification depends on the [`batch`](../extensions/batch.html) capability, which MUST be negotiated to resume a connection. The order of capability negotiation is not significant and MUST not be enforced. It also uses the [`standard-replies`](../extensions/standard-replies.html) extension for `FAIL` messages.
+This specification depends on the [`batch`](../extensions/batch.html) capability, which MUST be negotiated to resume a connection. The order of capability negotiation is not significant and MUST not be enforced.
 
 
 ## Architecture
