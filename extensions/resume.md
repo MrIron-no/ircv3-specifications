@@ -210,7 +210,7 @@ This approach is recommended as it protects against timing attacks. Implementers
 ## Examples
 
 ### Successful Resumption
-Successful `RESUME` attempt from a client with the nick `dan` reconnecting. The nickname the new client is connecting with is `dan-backup-nick`. The old connection used the username `~u` and the host `192.168.0.5`, and the new connection has the username `~d` and the host `10.0.0.3`. After resuming, the client retains the old connection's username and host:
+Successful `RESUME` attempt from a client with the nick `dan` reconnecting. The nickname the new client is connecting with is `dan-backup-nick`. The old connection used the username `~u` and the host `192.168.0.5`, and the new connection has the username `~d` and the host `10.0.0.3`. After resuming, the client retains the old connection's username and host. The old session had user modes `+iw` and was joined to `#test` (as an op) and `#lobby`:
 
     C1 - C: PING 12345678
     C1 - S: :irc.example.com PONG 12345678
@@ -230,7 +230,12 @@ Successful `RESUME` attempt from a client with the nick `dan` reconnecting. The 
     ... C1's connection is closed and C1's attributes are applied to C2 ...
     C2 - S: :irc.example.com BATCH +rs1 draft/resume-0.6
     C2 - S: @batch=rs1 :irc.example.com 001 dan :Welcome to the Internet Relay Network dan
-    ... C2 receives regular registration burst, all tagged with @batch=rs1 ...
+    C2 - S: @batch=rs1 :irc.example.com 002 dan :Your host is irc.example.com, running version example-1.0
+    C2 - S: @batch=rs1 :irc.example.com 003 dan :This server was created Mon Apr 3 2017 at 12:00:00 UTC
+    C2 - S: @batch=rs1 :irc.example.com 004 dan irc.example.com example-1.0 diko bklmnopstv bklov
+    C2 - S: @batch=rs1 :irc.example.com 005 dan CHANTYPES=# PREFIX=(ov)@+ NETWORK=Example :are supported by this server
+    C2 - S: @batch=rs1 :irc.example.com 375 dan :- irc.example.com Message of the Day -
+    C2 - S: @batch=rs1 :irc.example.com 372 dan :- Welcome to the example network!
     C2 - S: @batch=rs1 :irc.example.com 376 dan :End of MOTD command
     C2 - S: @batch=rs1 :dan!~u@192.168.0.5 MODE dan +iw
     C2 - S: @batch=rs1 :dan!~u@192.168.0.5 JOIN #test
@@ -240,7 +245,13 @@ Successful `RESUME` attempt from a client with the nick `dan` reconnecting. The 
     C2 - S: @batch=rs1 :irc.example.com 366 dan #test :End of /NAMES list.
     C2 - S: @batch=rs1 :irc.example.com 324 dan #test +ntk secret
     C2 - S: @batch=rs1 :irc.example.com 329 dan #test 1442060874
+    C2 - S: @batch=rs1 :dan!~u@192.168.0.5 JOIN #lobby
+    C2 - S: @batch=rs1 :irc.example.com 353 dan = #lobby :dan @alice bob
+    C2 - S: @batch=rs1 :irc.example.com 366 dan #lobby :End of /NAMES list.
+    C2 - S: @batch=rs1 :irc.example.com 324 dan #lobby +nt
+    C2 - S: @batch=rs1 :irc.example.com 329 dan #lobby 1491220800
     C2 - S: :irc.example.com BATCH -rs1
+    ... C2 now receives new messages for #test and #lobby as normal ...
 
 Other clients on the network, such as `george` and `violet` in `#test`, receive no messages about this reconnection. From their point of view `dan` never left.
 
