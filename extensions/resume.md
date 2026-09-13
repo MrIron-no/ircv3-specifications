@@ -34,7 +34,7 @@ This feature is particularly useful in combination with the [WebSocket](../exten
 Servers may also implement this feature so that a session can be resumed from a different server on the same network. This is particularly relevant when a client loses its connection to one server while that server remains linked to the network: the client can reconnect to any server and take over its existing session, rather than waiting for the old server to time it out.
 
 ### Dependencies
-This specification depends on the [`batch`](../extensions/batch.html) capability, which MUST be negotiated to resume a connection. The order of capability negotiation is not significant and MUST not be enforced.
+This specification depends on the [`batch`](../extensions/batch.html) capability. Servers MUST reject (`CAP NAK`) a request for the `draft/resume-0.6` capability unless the client has already negotiated `batch`, or requests `batch` in the same `CAP REQ`.
 
 
 ## Architecture
@@ -80,8 +80,6 @@ If the request is unsuccessful, the server returns a `FAIL RESUME` message with 
 | `REGISTRATION_IS_COMPLETED` | `:<server> FAIL RESUME REGISTRATION_IS_COMPLETED :Cannot resume connection, connection registration has completed` |
 | `CANNOT_RESUME` | `:<server> FAIL RESUME CANNOT_RESUME :Cannot resume connection, for a different reason described here` |
 
-The `batch` capability MUST be negotiated before sending `RESUME`; servers reject requests from clients without it using `CANNOT_RESUME`.
-
 If a client receives a `FAIL RESUME` message with a code other than `INVALID_TOKEN`, then they MUST abort the resume attempt and connect to the server normally instead. If they receive a `FAIL RESUME` message with code `INVALID_TOKEN`, then they MAY submit a different candidate token (in case of doubt as to whether a previous `RESUME` attempt was accepted), or else abort the resume attempt and connect normally.
 
 #### `RESUME` Message
@@ -110,7 +108,7 @@ The batch has no parameters beyond its type. It MUST contain, in this order:
 
 Any other session state that the server replays (for example, `MONITOR` lists or metadata) SHOULD also be sent inside this batch. Messages sent to the client's channels or to the client directly while it was disconnected are not part of the replay. Once the batch has ended, clients MAY use the [`chathistory`](../extensions/chathistory.html) extension, if the server offers it, to retrieve them; for example by sending `CHATHISTORY LATEST <target> timestamp=<last-seen>` for each channel and query, where `<last-seen>` is the `server-time` of the last message received on the old connection.
 
-The batch allows clients to distinguish the replayed state from new events and to apply it atomically. Servers MUST reject a `RESUME` request from a client that has not negotiated the `batch` capability with `FAIL RESUME CANNOT_RESUME`.
+The batch allows clients to distinguish the replayed state from new events and to apply it atomically. A client cannot hold the `draft/resume-0.6` capability without `batch`, as described in [Dependencies](#dependencies), so the server can always send it.
 
 ### BRB Messages
 
