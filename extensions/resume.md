@@ -63,7 +63,7 @@ This command, sent from a client to a server, indicates that the client wishes t
 
 `<timestamp>`, if given, is a timestamp indicating when the client received the last message from the server on the old connection. This timestamp uses the same format as the IRCv3 `server-time` extension (i.e. `YYYY-MM-DDThh:mm:ss.sssZ`, or in UTC using extended format as specified by ISO 8601:2004(E) 4.3.2), and is used by the server to determine how much message history the client may have missed.
 
-If the request is successful, the server returns a `RESUME SUCCESS` message as described below, registration immediately completes, and the server begins replaying the current client state.
+If the request is successful, the server returns a `RESUME SUCCESS` message as described below, registration immediately completes, and the server begins replaying the current client state inside a `draft/resume-0.6` batch as described in the [Resume Batch](#resume-batch) section.
 
 If the request is unsuccessful, the server returns a `FAIL RESUME` message with one of the codes below using the given format, including an appropriate description of the error:
 
@@ -92,6 +92,23 @@ The second form is `RESUME SUCCESS`, sent to indicate that a `RESUME` request ha
     RESUME SUCCESS <oldnick>
 
 `<oldnick>` is the nickname of the session being resumed. After receiving this message, the client MUST assume that this is their nickname.
+
+#### Resume Batch
+After `RESUME SUCCESS`, the server replays the registration burst and the client's session state to the new client. If the client has negotiated the [`batch`](https://ircv3.net/specs/extensions/batch) capability, this replay MUST be wrapped in a batch of type `draft/resume-0.6`:
+
+    BATCH +<ref> draft/resume-0.6
+    ... registration burst and session replay ...
+    BATCH -<ref>
+
+The batch has no parameters beyond its type. It MUST contain, in this order:
+
+1. The registration burst (`RPL_WELCOME` through the end of the `MOTD` or `ERR_NOMOTD`, and `RPL_ISUPPORT`), as the server would send it to a newly-registered client.
+2. The client's own user modes, as a `MODE` message from the client to itself.
+3. For each channel the client is joined to: the client's own `JOIN`, followed by the channel's topic (`RPL_TOPIC` and `RPL_TOPICWHOTIME`, if set), `RPL_NAMREPLY` and `RPL_ENDOFNAMES`, and the client's own channel membership modes as a `MODE` message.
+
+Any other session state that the server replays (for example, `MONITOR` lists or metadata) SHOULD also be sent inside this batch. Message history, if any is replayed, and the `WARN RESUME HISTORY_LOST` message are sent after the batch has ended.
+
+Clients that intend to resume SHOULD negotiate the `batch` capability, as the batch allows them to distinguish the replayed state from new events and to apply it atomically. If the client has not negotiated `batch`, the server sends the same messages in the same order without the surrounding `BATCH` messages.
 
 ### BRB Messages
 
@@ -147,8 +164,8 @@ On a successful request, the server:
 
 1. Terminates the old client's connection.
 2. Updates the client's resume token (or lack of one) to match the new client's information.
-3. Plays the 'joining server' burst to the new client.
-4. Replays the client's session to the new client.
+3. Plays the 'joining server' burst to the new client, inside a `draft/resume-0.6` batch as described above.
+4. Replays the client's session to the new client, inside the same batch.
 5. If message history could not be replayed (because it is not stored, or for any other reason), sends the new client a `WARN RESUME HISTORY_LOST` message making them aware of this.
 
 The resumption MUST NOT be visible to other clients. The server MUST NOT send `QUIT`, `JOIN`, `CHGHOST`, `MONITOR` or any other messages to other clients as a result of the resumption, and the resumed session MUST retain the nickname, username and visible hostname of the old client. Servers MAY update their internal record of the connection's real address (for example, for ban checks or operator `WHOIS` output), but this MUST NOT be exposed to other clients as a result of the resumption.
@@ -204,21 +221,25 @@ Successful `RESUME` attempt from a client with the nick `dan` reconnecting. The 
     C2 - C: CAP LS
     C2 - C: NICK dan-backup-nick
     C2 - C: USER d * 0 :An example user!
-    C2 - S: :irc.example.com CAP * LS :multi-prefix draft/resume-0.6 sasl
-    C2 - C: CAP REQ :multi-prefix draft/resume-0.6 sasl
-    C2 - S: :irc.example.com CAP dan-backup-nick ACK :multi-prefix draft/resume-0.6 sasl
+    C2 - S: :irc.example.com CAP * LS :multi-prefix batch draft/resume-0.6 sasl
+    C2 - C: CAP REQ :multi-prefix batch draft/resume-0.6 sasl
+    C2 - S: :irc.example.com CAP dan-backup-nick ACK :multi-prefix batch draft/resume-0.6 sasl
     C2 - S: :irc.example.com RESUME TOKEN JKbAypzFiovffzuD8VEfcs6bOLrXsSenxsyZNt8
     C2 - C: RESUME A8KgnZPYDaRiGMzZWLu2frVvtN7lbCxO3hTwGLO 2017-04-13T15:12:51.620Z
     C2 - S: :irc.example.com RESUME SUCCESS dan
     ... C1's connection is closed and C1's attributes are applied to C2 ...
-    C2 - S: :irc.example.com 001 dan :Welcome to the Internet Relay Network dan
-    ... C2 receives regular registration burst ...
-    C2 - S: :irc.example.com 376 dan :End of MOTD command
-    C2 - S: :dan!~u@192.168.0.5 JOIN #test
-    C2 - S: :irc.example.com 332 dan #test :Example topic
-    C2 - S: :irc.example.com 333 dan #test george 1442060874
-    C2 - S: :irc.example.com 353 dan @ #test :@dan @george +violet roger
-    C2 - S: :irc.example.com MODE #test +o dan
+    C2 - S: :irc.example.com BATCH +rs1 draft/resume-0.6
+    C2 - S: @batch=rs1 :irc.example.com 001 dan :Welcome to the Internet Relay Network dan
+    ... C2 receives regular registration burst, all tagged with @batch=rs1 ...
+    C2 - S: @batch=rs1 :irc.example.com 376 dan :End of MOTD command
+    C2 - S: @batch=rs1 :dan!~u@192.168.0.5 MODE dan +iw
+    C2 - S: @batch=rs1 :dan!~u@192.168.0.5 JOIN #test
+    C2 - S: @batch=rs1 :irc.example.com 332 dan #test :Example topic
+    C2 - S: @batch=rs1 :irc.example.com 333 dan #test george 1442060874
+    C2 - S: @batch=rs1 :irc.example.com 353 dan @ #test :@dan @george +violet roger
+    C2 - S: @batch=rs1 :irc.example.com 366 dan #test :End of /NAMES list.
+    C2 - S: @batch=rs1 :irc.example.com MODE #test +o dan
+    C2 - S: :irc.example.com BATCH -rs1
 
 Other clients on the network, such as `george` and `violet` in `#test`, receive no messages about this reconnection. From their point of view `dan` never left.
 
