@@ -15,6 +15,14 @@ copyrights:
     name: "Jess"
     period: "2019"
     email: "jess@jesopo.uk"
+  -
+    name: MrIron
+    period: "2026"
+    email: mriron@undernet.org
+  -
+    name: Empus
+    period: "2026"
+    email: empus@undernet.org
 ---
 ## Introduction
 Occasionally, clients disconnect from IRC. What normally happens is that the client connects with a different nickname, joins all their old channels, waits for the old connection to time out (or manually kills it using services), and then changes back to their original nickname.
