@@ -29,11 +29,14 @@ Occasionally, clients disconnect from IRC. What normally happens is that the cli
 
 The `resume` feature vastly simplifies this form of reconnection. The reconnecting client takes over its old session in place, and the reconnection is not visible to other clients: they see no `QUIT`, `JOIN` or other notification. In addition, this feature allows servers to send missing chat history to the reconnecting client, or to make the client aware of how much history may have been lost.
 
+### Dependencies
+This specification depends on the [`batch`](../extensions/batch.html) capability, which MUST be negotiated to resume a connection. The order of capability negotiation is not significant and MUST not be enforced. It also uses the [`standard-replies`](../extensions/standard-replies.html) extension for `FAIL` and `WARN` messages.
+
 
 ## Architecture
 This feature is enabled using the `draft/resume-0.6` capability, introduces the `RESUME` command, and uses the messages described below to convey state about the reconnection process. It also introduces the `BRB` command, which allows clients to close their connection while leaving their session on the server open for some time (to perform software upgrades, for example).
 
-These commands use the [standard replies extension](https://github.com/ircv3/ircv3-specifications/pull/357) to relay warning information and indicate when they are not successful. The specific `FAIL` codes are given with each command's description.
+These commands use the [standard replies extension](../extensions/standard-replies.html) to relay warning information and indicate when they are not successful. The specific `FAIL` codes are given with each command's description.
 
 
 ### Capabilities
@@ -74,6 +77,8 @@ If the request is unsuccessful, the server returns a `FAIL RESUME` message with 
 | `REGISTRATION_IS_COMPLETED` | `:<server> FAIL RESUME REGISTRATION_IS_COMPLETED :Cannot resume connection, connection registration has completed` |
 | `CANNOT_RESUME` | `:<server> FAIL RESUME CANNOT_RESUME :Cannot resume connection, for a different reason described here` |
 
+The `batch` capability MUST be negotiated before sending `RESUME`; servers reject requests from clients without it using `CANNOT_RESUME`.
+
 If a client receives a `FAIL RESUME` message with a code other than `INVALID_TOKEN`, then they MUST abort the resume attempt and connect to the server normally instead. If they receive a `FAIL RESUME` message with code `INVALID_TOKEN`, then they MAY submit a different candidate token (in case of doubt as to whether a previous `RESUME` attempt was accepted), or else abort the resume attempt and connect normally.
 
 If the request is successful, the server may also send a `WARN RESUME` message with one of the codes below using the given format, including an appropriate description of the warning:
@@ -94,7 +99,7 @@ The second form is `RESUME SUCCESS`, sent to indicate that a `RESUME` request ha
 `<oldnick>` is the nickname of the session being resumed. After receiving this message, the client MUST assume that this is their nickname.
 
 #### Resume Batch
-After `RESUME SUCCESS`, the server replays the registration burst and the client's session state to the new client. If the client has negotiated the [`batch`](https://ircv3.net/specs/extensions/batch) capability, this replay MUST be wrapped in a batch of type `draft/resume-0.6`:
+After `RESUME SUCCESS`, the server replays the registration burst and the client's session state to the new client. This replay MUST be wrapped in a [`batch`](../extensions/batch.html) of type `draft/resume-0.6`:
 
     BATCH +<ref> draft/resume-0.6
     ... registration burst and session replay ...
@@ -108,7 +113,7 @@ The batch has no parameters beyond its type. It MUST contain, in this order:
 
 Any other session state that the server replays (for example, `MONITOR` lists or metadata) SHOULD also be sent inside this batch. Message history, if any is replayed, and the `WARN RESUME HISTORY_LOST` message are sent after the batch has ended.
 
-Clients that intend to resume SHOULD negotiate the `batch` capability, as the batch allows them to distinguish the replayed state from new events and to apply it atomically. If the client has not negotiated `batch`, the server sends the same messages in the same order without the surrounding `BATCH` messages.
+The batch allows clients to distinguish the replayed state from new events and to apply it atomically. Servers MUST reject a `RESUME` request from a client that has not negotiated the `batch` capability with `FAIL RESUME CANNOT_RESUME`.
 
 ### BRB Messages
 
@@ -154,7 +159,7 @@ Considerations around tokens and the process for generating them is described be
 ## Resuming A Connection
 When a client detects that it has become disconnected from a server, it SHOULD try to resume before it breaks the existing connection.
 
-Upon establishing the new connection, the client begins capability negotiation, negotiates all mutually-supported capabilities, and MUST confirm that the `draft/resume-0.6` capability exists. If this capability does not exist, the client continues connection registration without attempting to resume. If this capability does exist, the client sends the `RESUME` command and MUST wait for either a `RESUME SUCCESS` or a `FAIL RESUME` message from the server before continuing registration. It should be noted that the client MUST NOT perform SASL authentication if the `draft/resume-0.6` capability exists and they wish to resume their session, as completing SASL auth will end connection registration and abort the resumption attempt.
+Upon establishing the new connection, the client begins capability negotiation, negotiates all mutually-supported capabilities, and MUST confirm that both the `draft/resume-0.6` and `batch` capabilities exist and have been negotiated. If either capability does not exist, the client continues connection registration without attempting to resume. If this capability does exist, the client sends the `RESUME` command and MUST wait for either a `RESUME SUCCESS` or a `FAIL RESUME` message from the server before continuing registration. It should be noted that the client MUST NOT perform SASL authentication if the `draft/resume-0.6` capability exists and they wish to resume their session, as completing SASL auth will end connection registration and abort the resumption attempt.
 
 If the token provided by the new client is validated by the server, the old client completed connection registration with the server, and both the old and new clients use TLS, then the attempt SHOULD be successful. If the attempt is successful, the server MUST send the client a `RESUME SUCCESS` message and complete connection registration immediately (at which time the state will begin to replay as described below). If the attempt is unsuccessful (for example, if either session is not using a secure connection), the server MUST send a `FAIL RESUME` message, and then allow the client to continue connection registration.
 
