@@ -50,6 +50,8 @@ When this capability is negotiated, the server sends the client their resume tok
 
 Servers MUST ONLY generate and provide a resume token to a client when the client negotiates the `draft/resume-0.6` capability.
 
+Servers that wish to restrict resumption to secure connections MUST enforce this by not advertising the `draft/resume-0.6` capability to clients that are not connected with TLS. A client that is not offered the capability never receives a token and never attempts to resume, so no error code is needed for this case. Servers with such a policy SHOULD also refuse to resume a session whose old connection was not using TLS, using `CANNOT_RESUME`.
+
 Capability negotiation example:
 
     C: CAP LS
@@ -74,7 +76,6 @@ If the request is unsuccessful, the server returns a `FAIL RESUME` message with 
 
 | Code | Format |
 | ---- | ------ |
-| `INSECURE_SESSION` | `:<server> FAIL RESUME INSECURE_SESSION :Cannot resume connection, you are not connected with TLS` |
 | `INVALID_TOKEN` | `:<server> FAIL RESUME INVALID_TOKEN :Cannot resume connection, token is not valid` |
 | `REGISTRATION_IS_COMPLETED` | `:<server> FAIL RESUME REGISTRATION_IS_COMPLETED :Cannot resume connection, connection registration has completed` |
 | `CANNOT_RESUME` | `:<server> FAIL RESUME CANNOT_RESUME :Cannot resume connection, for a different reason described here` |
@@ -157,7 +158,7 @@ When a client detects that it has become disconnected from a server, it SHOULD t
 
 Upon establishing the new connection, the client begins capability negotiation, negotiates all mutually-supported capabilities, and MUST confirm that both the `draft/resume-0.6` and `batch` capabilities exist and have been negotiated. If either capability does not exist, the client continues connection registration without attempting to resume. If this capability does exist, the client sends the `RESUME` command and MUST wait for either a `RESUME SUCCESS` or a `FAIL RESUME` message from the server before continuing registration. It should be noted that the client MUST NOT perform SASL authentication if the `draft/resume-0.6` capability exists and they wish to resume their session, as completing SASL auth will end connection registration and abort the resumption attempt.
 
-If the token provided by the new client is validated by the server, the old client completed connection registration with the server, and both the old and new clients use TLS, then the attempt SHOULD be successful. If the attempt is successful, the server MUST send the client a `RESUME SUCCESS` message and complete connection registration immediately (at which time the state will begin to replay as described below). If the attempt is unsuccessful (for example, if either session is not using a secure connection), the server MUST send a `FAIL RESUME` message, and then allow the client to continue connection registration.
+If the token provided by the new client is validated by the server and the old client completed connection registration with the server, then the attempt SHOULD be successful. If the attempt is successful, the server MUST send the client a `RESUME SUCCESS` message and complete connection registration immediately (at which time the state will begin to replay as described below). If the attempt is unsuccessful, the server MUST send a `FAIL RESUME` message, and then allow the client to continue connection registration.
 
 If the client receives a `RESUME SUCCESS` message, connection registration will complete immediately and state will begin to replay as described below. If the client receives a `FAIL RESUME`, the client MUST continue registration as though they are joining the server normally.
 
