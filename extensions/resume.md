@@ -104,7 +104,7 @@ The batch has no parameters beyond its type. It MUST contain, in this order:
 
 1. The registration burst (`RPL_WELCOME` through the end of the `MOTD` or `ERR_NOMOTD`, and `RPL_ISUPPORT`), as the server would send it to a newly-registered client.
 2. The client's own user modes, as a `MODE` message from the client to itself.
-3. For each channel the client is joined to: the client's own `JOIN`, followed by everything the server would normally send after a join, namely the channel's topic (`RPL_TOPIC` and `RPL_TOPICWHOTIME`, if set) and the member list (`RPL_NAMREPLY` and `RPL_ENDOFNAMES`). Because the channel's modes may have changed while the client was disconnected, and clients would otherwise have to poll them with `MODE`, the server MUST also send the channel modes (`RPL_CHANNELMODEIS` and `RPL_CREATIONTIME`) as a client would receive them in reply to `MODE <channel>`. The client's own membership prefixes are conveyed by `RPL_NAMREPLY`.
+3. For each channel the client is joined to: the client's own `JOIN`, followed by exactly what the server would normally send after a join, namely the channel's topic (`RPL_TOPIC` and `RPL_TOPICWHOTIME`, if set) and the member list (`RPL_NAMREPLY` and `RPL_ENDOFNAMES`). The client's own membership prefixes are conveyed by `RPL_NAMREPLY`. Channel modes are not included; as after any join, clients that want them should query them with `MODE <channel>` once the batch has ended.
 
 Any other session state that the server replays (for example, `MONITOR` lists or metadata) SHOULD also be sent inside this batch. Message history, if any is replayed, and the `WARN RESUME HISTORY_LOST` message are sent after the batch has ended.
 
@@ -243,13 +243,9 @@ Successful `RESUME` attempt from a client with the nick `dan` reconnecting. The 
     C2 - S: @batch=rs1 :irc.example.com 333 dan #test george 1442060874
     C2 - S: @batch=rs1 :irc.example.com 353 dan @ #test :@dan @george +violet roger
     C2 - S: @batch=rs1 :irc.example.com 366 dan #test :End of /NAMES list.
-    C2 - S: @batch=rs1 :irc.example.com 324 dan #test +ntk secret
-    C2 - S: @batch=rs1 :irc.example.com 329 dan #test 1442060874
     C2 - S: @batch=rs1 :dan!~u@192.168.0.5 JOIN #lobby
     C2 - S: @batch=rs1 :irc.example.com 353 dan = #lobby :dan @alice bob
     C2 - S: @batch=rs1 :irc.example.com 366 dan #lobby :End of /NAMES list.
-    C2 - S: @batch=rs1 :irc.example.com 324 dan #lobby +nt
-    C2 - S: @batch=rs1 :irc.example.com 329 dan #lobby 1491220800
     C2 - S: :irc.example.com BATCH -rs1
     ... C2 now receives new messages for #test and #lobby as normal ...
 
