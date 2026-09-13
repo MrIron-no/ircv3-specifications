@@ -27,16 +27,16 @@ copyrights:
 ## Introduction
 Occasionally, clients disconnect from IRC. What normally happens is that the client connects with a different nickname, joins all their old channels, waits for the old connection to time out (or manually kills it using services), and then changes back to their original nickname.
 
-The `resume` feature vastly simplifies this form of reconnection. The reconnecting client takes over its old session in place, and the reconnection is not visible to other clients: they see no `QUIT`, `JOIN` or other notification. In addition, this feature allows servers to send missing chat history to the reconnecting client, or to make the client aware of how much history may have been lost.
+The `resume` feature vastly simplifies this form of reconnection. The reconnecting client takes over its old session in place, and the reconnection is not visible to other clients: they see no `QUIT`, `JOIN` or other notification. Messages sent while the client was disconnected are not replayed by this extension; clients can retrieve them with the [`chathistory`](../extensions/chathistory.html) extension if the server offers it.
 
 ### Dependencies
-This specification depends on the [`batch`](../extensions/batch.html) capability, which MUST be negotiated to resume a connection. The order of capability negotiation is not significant and MUST not be enforced. It also uses the [`standard-replies`](../extensions/standard-replies.html) extension for `FAIL` and `WARN` messages.
+This specification depends on the [`batch`](../extensions/batch.html) capability, which MUST be negotiated to resume a connection. The order of capability negotiation is not significant and MUST not be enforced. It also uses the [`standard-replies`](../extensions/standard-replies.html) extension for `FAIL` messages.
 
 
 ## Architecture
 This feature is enabled using the `draft/resume-0.6` capability, introduces the `RESUME` command, and uses the messages described below to convey state about the reconnection process. It also introduces the `BRB` command, which allows clients to close their connection while leaving their session on the server open for some time (to perform software upgrades, for example).
 
-These commands use the [standard replies extension](../extensions/standard-replies.html) to relay warning information and indicate when they are not successful. The specific `FAIL` codes are given with each command's description.
+These commands use the [standard replies extension](../extensions/standard-replies.html) to indicate when they are not successful. The specific `FAIL` codes are given with each command's description.
 
 
 ### Capabilities
@@ -60,11 +60,9 @@ Capability negotiation example:
 #### `RESUME` Command
 This command, sent from a client to a server, indicates that the client wishes to resume their old session. This command MAY ONLY be sent during connection registration.
 
-    RESUME <token> [timestamp]
+    RESUME <token>
 
 `<token>` is the old connection's resume token.
-
-`<timestamp>`, if given, is a timestamp indicating when the client received the last message from the server on the old connection. This timestamp uses the same format as the IRCv3 `server-time` extension (i.e. `YYYY-MM-DDThh:mm:ss.sssZ`, or in UTC using extended format as specified by ISO 8601:2004(E) 4.3.2), and is used by the server to determine how much message history the client may have missed.
 
 If the request is successful, the server returns a `RESUME SUCCESS` message as described below, registration immediately completes, and the server begins replaying the current client state inside a `draft/resume-0.6` batch as described in the [Resume Batch](#resume-batch) section.
 
@@ -80,12 +78,6 @@ If the request is unsuccessful, the server returns a `FAIL RESUME` message with 
 The `batch` capability MUST be negotiated before sending `RESUME`; servers reject requests from clients without it using `CANNOT_RESUME`.
 
 If a client receives a `FAIL RESUME` message with a code other than `INVALID_TOKEN`, then they MUST abort the resume attempt and connect to the server normally instead. If they receive a `FAIL RESUME` message with code `INVALID_TOKEN`, then they MAY submit a different candidate token (in case of doubt as to whether a previous `RESUME` attempt was accepted), or else abort the resume attempt and connect normally.
-
-If the request is successful, the server may also send a `WARN RESUME` message with one of the codes below using the given format, including an appropriate description of the warning:
-
-| Code | Format |
-| ---- | ------ |
-| `HISTORY_LOST` | `:<server> WARN RESUME HISTORY_LOST :Up to 30 seconds of history may have been lost` |
 
 #### `RESUME` Message
 This message is sent from the server to the client and has two forms, `RESUME TOKEN` and `RESUME SUCCESS`. `RESUME TOKEN` is used as described above, to communicate the resume token to the client after the client's first negotiation of the `draft/resume-0.6` capability:
@@ -111,7 +103,7 @@ The batch has no parameters beyond its type. It MUST contain, in this order:
 2. The client's own user modes, as a `MODE` message from the client to itself.
 3. For each channel the client is joined to: the client's own `JOIN`, followed by exactly what the server would normally send after a join, namely the channel's topic (`RPL_TOPIC` and `RPL_TOPICWHOTIME`, if set) and the member list (`RPL_NAMREPLY` and `RPL_ENDOFNAMES`). The client's own membership prefixes are conveyed by `RPL_NAMREPLY`. Channel modes are not included; as after any join, clients that want them should query them with `MODE <channel>` once the batch has ended.
 
-Any other session state that the server replays (for example, `MONITOR` lists or metadata) SHOULD also be sent inside this batch. Message history, if any is replayed, and the `WARN RESUME HISTORY_LOST` message are sent after the batch has ended.
+Any other session state that the server replays (for example, `MONITOR` lists or metadata) SHOULD also be sent inside this batch. Messages sent to the client's channels or to the client directly while it was disconnected are not part of the replay. Once the batch has ended, clients MAY use the [`chathistory`](../extensions/chathistory.html) extension, if the server offers it, to retrieve them; for example by sending `CHATHISTORY LATEST <target> timestamp=<last-seen>` for each channel and query, where `<last-seen>` is the `server-time` of the last message received on the old connection.
 
 The batch allows clients to distinguish the replayed state from new events and to apply it atomically. Servers MUST reject a `RESUME` request from a client that has not negotiated the `batch` capability with `FAIL RESUME CANNOT_RESUME`.
 
@@ -171,7 +163,6 @@ On a successful request, the server:
 2. Updates the client's resume token (or lack of one) to match the new client's information.
 3. Plays the 'joining server' burst to the new client, inside a `draft/resume-0.6` batch as described above.
 4. Replays the client's session to the new client, inside the same batch.
-5. If message history could not be replayed (because it is not stored, or for any other reason), sends the new client a `WARN RESUME HISTORY_LOST` message making them aware of this.
 
 The resumption MUST NOT be visible to other clients. The server MUST NOT send `QUIT`, `JOIN`, `CHGHOST`, `MONITOR` or any other messages to other clients as a result of the resumption, and the resumed session MUST retain the nickname, username and visible hostname of the old client. Servers MAY update their internal record of the connection's real address (for example, for ban checks or operator `WHOIS` output), but this MUST NOT be exposed to other clients as a result of the resumption.
 
@@ -230,7 +221,7 @@ Successful `RESUME` attempt from a client with the nick `dan` reconnecting. The 
     C2 - C: CAP REQ :multi-prefix batch draft/resume-0.6 sasl
     C2 - S: :irc.example.com CAP dan-backup-nick ACK :multi-prefix batch draft/resume-0.6 sasl
     C2 - S: :irc.example.com RESUME TOKEN JKbAypzFiovffzuD8VEfcs6bOLrXsSenxsyZNt8
-    C2 - C: RESUME A8KgnZPYDaRiGMzZWLu2frVvtN7lbCxO3hTwGLO 2017-04-13T15:12:51.620Z
+    C2 - C: RESUME A8KgnZPYDaRiGMzZWLu2frVvtN7lbCxO3hTwGLO
     C2 - S: :irc.example.com RESUME SUCCESS dan
     ... C1's connection is closed and C1's attributes are applied to C2 ...
     C2 - S: :irc.example.com BATCH +rs1 draft/resume-0.6
@@ -253,6 +244,8 @@ Successful `RESUME` attempt from a client with the nick `dan` reconnecting. The 
     C2 - S: @batch=rs1 :irc.example.com 366 dan #lobby :End of /NAMES list.
     C2 - S: :irc.example.com BATCH -rs1
     ... C2 now receives new messages for #test and #lobby as normal ...
+    C2 - C: CHATHISTORY LATEST #test timestamp=2017-04-13T15:12:51.620Z 50
+    ... server replies with a chathistory batch, if supported ...
 
 Other clients on the network, such as `george` and `violet` in `#test`, receive no messages about this reconnection. From their point of view `dan` never left.
 
@@ -272,7 +265,7 @@ Failed `RESUME` attempt from a client with the nick `dan` reconnecting. The nick
     C2 - C: CAP REQ :multi-prefix draft/resume-0.6 sasl
     C2 - S: :irc.example.com CAP dan-backup-nick ACK :multi-prefix draft/resume-0.6 sasl
     C2 - S: :irc.example.com RESUME TOKEN JKbAypzFiovffzuD8VEfcs6bOLrXsSenxsyZNt8
-    C2 - C: RESUME A8KgnZPYDaRiGMzZWLu2frVvtN7lbCxO3hTwGLO 2017-04-13T15:12:51.620Z
+    C2 - C: RESUME A8KgnZPYDaRiGMzZWLu2frVvtN7lbCxO3hTwGLO
     C2 - S: :irc.example.com FAIL RESUME INVALID_TOKEN :Cannot resume connection, token is not valid
     C2 - C: AUTHENTICATE PLAIN
     C2 - S: :irc.example.com AUTHENTICATE +
@@ -315,7 +308,7 @@ Right now, when clients detect that their connection to the server may have drop
 
 In addition, users sometimes manually reconnect when they see that there is lag on their connection. In these cases, clients may also wish to do the above rather than closing the connection and then reconnecting.
 
-If the server supports the `server-time` capability, clients should use those values to calculate their `RESUME` timestamp parameter. This provides greater resiliency against lag and clock skew between client and server.
+Clients that intend to fetch missed messages with `chathistory` after resuming should record the `server-time` of the last message received on the old connection, and use that rather than local wall-clock time as the starting point. This provides greater resiliency against lag and clock skew between client and server.
 
 A client that disconnects and reconnects to the server should explicitly display the reconnection, even if they're able to resume successfully. This is so that the user knows why they may be missing message history and similar issues.
 
