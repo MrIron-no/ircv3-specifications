@@ -368,3 +368,15 @@ Without this specification, if you know a client's account credentials you can t
 
 With this specification, if you have a client's resume token you're able to see which hidden channels they've joined and essentially take-over their connection. Servers have to ensure that resume tokens are cryptographically-strong as they become the new baseline for authenticating as an active, online user. Because resumption is not visible to other users, servers should log resumptions (including the old and new connection addresses) and may wish to make them visible to operators, so that a session take-over can be investigated after the fact.
  
+
+## Changes since draft/resume-0.5
+*This section exists to aid review of this draft and is to be removed before the specification is merged.*
+
+- Resumption is no longer visible to other clients. The `RESUMED` message and the `QUIT`+`JOIN` fallback for clients without the capability are removed, and the resumed session retains the old client's nickname, username and visible hostname.
+- Message playback is removed from this specification, along with the `RESUME` timestamp parameter and `WARN RESUME HISTORY_LOST`. Clients retrieve missed messages with the `chathistory` extension if the server offers it.
+- The state replayed after `RESUME SUCCESS` is specified as a strict replica of join traffic (registration burst, self user modes, and for each channel the self `JOIN`, topic and `NAMES`), wrapped in a `draft/resume-0.6` batch when the client has negotiated `batch`.
+- The `INSECURE_SESSION` failure code is removed. Servers restricting resumption to TLS enforce this by not advertising the capability on non-TLS connections.
+- Clients may now authenticate with SASL before `RESUME`. Servers may require this with the new `SASL_FIRST` failure code, matching the token against the old session's account; otherwise the account authenticated on the new connection is disregarded in favour of the old session's.
+- The introduction motivates the feature with WebSocket edge connection drops and resumption from another server on the same network.
+- The standard-replies reference points at the merged specification.
+- MrIron and Empus added as authors.
