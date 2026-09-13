@@ -27,11 +27,11 @@ copyrights:
 ## Introduction
 Occasionally, clients disconnect from IRC. What normally happens is that the client connects with a different nickname, joins all their old channels, waits for the old connection to time out (or manually kills it using services), and then changes back to their original nickname.
 
-The `resume` feature vastly simplifies this form of reconnection, for both the client that's reconnecting and clients joined to the same channels. In addition, this feature allows servers to either send missing chat history to the reconnecting client, or make other clients aware of just how much history has been lost.
+The `resume` feature vastly simplifies this form of reconnection. The reconnecting client takes over its old session in place, and the reconnection is not visible to other clients: they see no `QUIT`, `JOIN` or other notification. In addition, this feature allows servers to send missing chat history to the reconnecting client, or to make the client aware of how much history may have been lost.
 
 
 ## Architecture
-This feature is enabled using the `draft/resume-0.6` capability, introduces the `RESUME` command, and uses the messages described below to convey state about the reconnection process and reconnecting clients. It also introduces the `BRB` command, which allows clients to close their connection while leaving their session on the server open for some time (to perform software upgrades, for example).
+This feature is enabled using the `draft/resume-0.6` capability, introduces the `RESUME` command, and uses the messages described below to convey state about the reconnection process. It also introduces the `BRB` command, which allows clients to close their connection while leaving their session on the server open for some time (to perform software upgrades, for example).
 
 These commands use the [standard replies extension](https://github.com/ircv3/ircv3-specifications/pull/357) to relay warning information and indicate when they are not successful. The specific `FAIL` codes are given with each command's description.
 
@@ -61,7 +61,7 @@ This command, sent from a client to a server, indicates that the client wishes t
 
 `<token>` is the old connection's resume token.
 
-`<timestamp>`, if given, is a timestamp indicating when the client received the last message from the server on the old connection. This timestamp uses the same format as the IRCv3 `server-time` extension (i.e. `YYYY-MM-DDThh:mm:ss.sssZ`, or in UTC using extended format as specified by ISO 8601:2004(E) 4.3.2), and is passed to other clients to indicates how long the disconnection lasted.
+`<timestamp>`, if given, is a timestamp indicating when the client received the last message from the server on the old connection. This timestamp uses the same format as the IRCv3 `server-time` extension (i.e. `YYYY-MM-DDThh:mm:ss.sssZ`, or in UTC using extended format as specified by ISO 8601:2004(E) 4.3.2), and is used by the server to determine how much message history the client may have missed.
 
 If the request is successful, the server returns a `RESUME SUCCESS` message as described below, registration immediately completes, and the server begins replaying the current client state.
 
@@ -92,19 +92,6 @@ The second form is `RESUME SUCCESS`, sent to indicate that a `RESUME` request ha
     RESUME SUCCESS <oldnick>
 
 `<oldnick>` is the nickname of the session being resumed. After receiving this message, the client MUST assume that this is their nickname.
-
-#### `RESUMED` Message
-This message is sent by the server to indicate that another client has reconnected:
-
-    :nick!user@oldhost RESUMED <host> [status]
-
-`<nick>` and `<oldhost>` indicate the client that has reconnected, and are the details of the old client. `<host>` indicates the reconnecting client's new hostname, and the receiving client MUST process this information as they would from a regular [`CHGHOST`](https://ircv3.net/specs/extensions/chghost-3.2.html) message.
-
-The `[status]` parameter is used to indicate the server's belief about how much history was lost. If it is the string `ok`, this means the server believes no history was lost, i.e., any messages that were missed will be replayed to the client. If it is a timestamp, then the client may have lost history messages that were sent between that time and the resumption. If it is omitted, then the client may have lost an unknown amount of history.
-
-Upon receiving a `RESUMED` message, clients SHOULD display in some way that the given user has reconnected (as message history may have been lost and the users' chat may have been interrupted). If `[status]` is a timestamp, clients SHOULD use it to display how much message history seems to have been lost.
-
-The `RESUMED` message can only be sent to clients that have negotiated the `draft/resume-0.6` capability. Clients that have not negotiated this MUST be either sent consecutive `QUIT` and `JOIN` messages that describe the reconnection (and how much history may have been lost), or no notification at all if no history has been lost.
 
 ### BRB Messages
 
@@ -159,15 +146,16 @@ If the client receives a `RESUME SUCCESS` message, connection registration will 
 On a successful request, the server:
 
 1. Terminates the old client's connection.
-2. Updates the client's hostname and resume token (or lack of one) to match the new client's information.
+2. Updates the client's resume token (or lack of one) to match the new client's information.
 3. Plays the 'joining server' burst to the new client.
 4. Replays the client's session to the new client.
-5. Sends `RESUMED` or `QUIT`+`JOIN` messages to other clients as appropriate.
-6. Sends clients that have the reconnecting user `MONITOR`'d one `RPL_MONOFFLINE` numeric and one `RPL_MONONLINE` numeric indicating that the user has reconnected. The timestamps on both these messages, if sent, SHOULD be the current time.
-7. If message history could not be replayed (because it is not stored, or for any other reason), sends the new client a `WARN RESUME HISTORY_LOST` message making them aware of this.
+5. If message history could not be replayed (because it is not stored, or for any other reason), sends the new client a `WARN RESUME HISTORY_LOST` message making them aware of this.
+
+The resumption MUST NOT be visible to other clients. The server MUST NOT send `QUIT`, `JOIN`, `CHGHOST`, `MONITOR` or any other messages to other clients as a result of the resumption, and the resumed session MUST retain the nickname, username and visible hostname of the old client. Servers MAY update their internal record of the connection's real address (for example, for ban checks or operator `WHOIS` output), but this MUST NOT be exposed to other clients as a result of the resumption.
 
 On a successful request, the session information that MUST be applied from the old client and replayed includes, but is not limited to:
 
+- Nickname, username and visible hostname.
 - Joined channels, along with channel membership prefixes (op, halfop, etc).
 - Metadata.
 - MONITOR list.
@@ -205,7 +193,7 @@ This approach is recommended as it protects against timing attacks. Implementers
 ## Examples
 
 ### Successful Resumption
-Successful `RESUME` attempt from a client with the nick `dan` reconnecting. The nickname the new client is connecting with is `dan-backup-nick`. The old connection used the username `~u` and the host `192.168.0.5`, and the new connection has the username `~d` and the host `10.0.0.3`:
+Successful `RESUME` attempt from a client with the nick `dan` reconnecting. The nickname the new client is connecting with is `dan-backup-nick`. The old connection used the username `~u` and the host `192.168.0.5`, and the new connection has the username `~d` and the host `10.0.0.3`. After resuming, the client retains the old connection's username and host:
 
     C1 - C: PING 12345678
     C1 - S: :irc.example.com PONG 12345678
@@ -226,21 +214,13 @@ Successful `RESUME` attempt from a client with the nick `dan` reconnecting. The 
     C2 - S: :irc.example.com 001 dan :Welcome to the Internet Relay Network dan
     ... C2 receives regular registration burst ...
     C2 - S: :irc.example.com 376 dan :End of MOTD command
-    C2 - S: :dan!~u@10.0.0.3 JOIN #test
+    C2 - S: :dan!~u@192.168.0.5 JOIN #test
     C2 - S: :irc.example.com 332 dan #test :Example topic
     C2 - S: :irc.example.com 333 dan #test george 1442060874
     C2 - S: :irc.example.com 353 dan @ #test :@dan @george +violet roger
     C2 - S: :irc.example.com MODE #test +o dan
 
-Here is this successful reconnection seen by `george`, a client that does not have the `draft/resume-0.6` capability enabled:
-
-    S: :dan!~u@192.168.0.5 QUIT :Client reconnected (24 seconds of message history lost)
-    S: :dan!~u@10.0.0.3 JOIN #test
-    S: :irc.example.com MODE #test +o dan
-
-And here is this reconnection seen by `violet`, a client that has the `draft/resume-0.6` capability:
-
-    S: :dan!~old@192.168.0.5 RESUMED 10.0.0.3 2017-04-13T15:12:51.620Z
+Other clients on the network, such as `george` and `violet` in `#test`, receive no messages about this reconnection. From their point of view `dan` never left.
 
 ### Failed Resumption
 Failed `RESUME` attempt from a client with the nick `dan` reconnecting. The nickname the new client is connecting with is `dan-backup-nick`. The old connection used the username `~old` and the host `192.168.0.5`, and the new connection uses the username `~d` and the host `10.0.0.3`:
@@ -303,8 +283,6 @@ In addition, users sometimes manually reconnect when they see that there is lag 
 
 If the server supports the `server-time` capability, clients should use those values to calculate their `RESUME` timestamp parameter. This provides greater resiliency against lag and clock skew between client and server.
 
-When clients see a `RESUMED` message for another client which contains a timestamp, they can calculate how much time has passed since the timestamp and the current time and then display this next to the reconnect notice. Displaying this can assist users in knowing how much message history has been lost in private queries and channels.
-
 A client that disconnects and reconnects to the server should explicitly display the reconnection, even if they're able to resume successfully. This is so that the user knows why they may be missing message history and similar issues.
 
 Servers may wish to check the new hostmask of resuming clients, to ensure that it does not fall under their list of banned hosts or hostmasks.
@@ -327,5 +305,5 @@ Servers should decide whether, on resuming the session of an IRC operator, the o
 
 Without this specification, if you know a client's account credentials you can typically close their connection (using something like `/NS GHOST` or `/NS REGAIN`).
 
-With this specification, if you have a client's resume token you're able to see which hidden channels they've joined and essentially take-over their connection. Servers have to ensure that resume tokens are cryptographically-strong as they become the new baseline for authenticating as an active, online user. Clients should display incoming `RESUMED` messages in such a way that users are explicitly aware that the given client has reconnected.
+With this specification, if you have a client's resume token you're able to see which hidden channels they've joined and essentially take-over their connection. Servers have to ensure that resume tokens are cryptographically-strong as they become the new baseline for authenticating as an active, online user. Because resumption is not visible to other users, servers should log resumptions (including the old and new connection addresses) and may wish to make them visible to operators, so that a session take-over can be investigated after the fact.
  
