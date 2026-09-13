@@ -325,6 +325,8 @@ This section notes security-specific considerations software authors will need t
 
 Servers should verify that clients cannot use `resume` to unintentionally bypass or evade any checks normally performed during registration, such as the `PASS` command or IP/nickmask bans. For this reason, we recommend only allowing clients to resume if their old session had completed connection registration successfully.
 
+A resume token is a bearer credential: anyone who observes it can take over the session. Servers should therefore enforce a policy of only offering resumption over TLS, so that tokens are never sent in the clear. As described in the [Capabilities](#capabilities) section, this policy is enforced at capability negotiation, by not advertising `draft/resume-0.6` to clients that are not connected with TLS, rather than by rejecting `RESUME` later. A client on a plaintext connection then never receives a token at all.
+
 When servers apply the old client's session information to the new client, ensure that the new client retains their own unique resume token. Clients shouldn't share resume tokens under any circumstances.
 
 Servers must construct resume tokens in a secure way. The [Resume Token](#resume-token) section above lays out a method that should prevent timing attacks. Any implementers creating their own method must protect against timing attacks and other possible attacks against their authentication method.
